@@ -1,0 +1,116 @@
+---
+title: "CCP Report initial"
+output: 
+  bookdown::html_document2: 
+    fig_caption: true
+    number_sections: true
+date: "2025-03-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+
+source('./Scripts/.PACKAGES.R')
+source('./Scripts/.FUNCTIONS.R')
+
+```
+
+```{r, include =FALSE}
+m3m <- left_join(read.csv('./CCP_report/m3m.csv') %>% 
+                   mutate(Plot =Id), vars, by = 'Plot') %>% filter(Tree.classification != 'NA') %>%
+  filter(!Plot %in% c(36,46,47,54)) 
+m3e <- left_join(read.csv('./CCP_report/m3e.csv') %>% 
+                   mutate(Plot =Id), vars, by = 'Plot') %>% filter(Tree.classification != 'NA') %>%
+  filter(!Plot %in% c(36,46,47,54))
+
+#remove duplicates
+m3m_u <- m3m %>%
+  group_by(Barcode) %>%  # Group by the 'id' column
+  filter(is.na(Barcode) | Barcode == "" | row_number() == 1) %>%  # Keep blanks and first occurrence of non-blanks
+  ungroup() 
+
+m3e_u <- m3e %>%
+  group_by(Barcode) %>%  # Group by the 'id' column
+  filter(is.na(Barcode) | Barcode == "" | row_number() == 1) %>%  # Keep blanks and first occurrence of non-blanks
+  ungroup()
+
+c <- bind_rows(count(m3m_u, Plot, Tree.classification) %>% mutate(instrument = 'M3M'),
+          count(m3e_u, Plot, Tree.classification) %>% mutate(instrument = 'M3E'))
+```
+
+
+```{r 100 trees data, include = F}
+fd <- read.csv('./Tidy/Data_analysis_files/VI_band_spatial_buffer.csv') %>% filter(VI == 'NDVI') %>% filter(Buffer == 75)
+m3mf <- m3m_u %>% filter(Tree.type %in% c( "Birch", "Cherry", "Alder","Oak","Aspen","Rowan","Sitka Spruce"))
+m3ef <- m3e_u %>% filter(Tree.type %in% c( "Birch", "Cherry", "Alder","Oak","Aspen","Rowan","Sitka Spruce" ))
+fd <- fd %>% filter(Tree.type %in% c( "Birch", "Cherry", "Alder","Oak","Aspen","Rowan","Sitka Spruce" ))
+
+m <- m3mf %>% count(Plot, Tree.type)
+e <- m3ef %>% count(Plot, Tree.type)
+
+f <- fd %>% count(Plot, Tree.type)
+
+d <- na.omit(bind_rows(m %>% mutate(instrument = 'M3M'),
+          e %>% mutate(instrument = 'M3E'),
+          f %>% mutate(instrument = 'Ground truth')))
+
+
+comparison_data <- f %>%
+  rename(Actual = n) %>%
+  left_join(e %>% rename(Pred_e = n), by = c("Plot", "Tree.type")) %>%
+  left_join(m %>% rename(Pred_m = n), by = c("Plot", "Tree.type"))
+
+cdf <- na.omit(comparison_data) %>% group_by(Tree.type) %>%
+  summarise_all(mean)
+cdf[,-2]
+
+ss <-filter(d, Tree.type == 'Sitka Spruce') %>% mutate(Tree.classification = 'Spruce')
+
+bl <-filter(d, Tree.type != 'Sitka Spruce')
+bl_all <- bl %>% group_by(instrument, Plot) %>%
+  summarise(n = sum(n)) %>% mutate(Tree.classification = 'Native Broadleaf')
+
+a <- bind_rows(ss, bl_all)
+
+```
+
+```{r, fig.cap= "Average number of trees per plot for the two intruments"}
+ggplot(c,aes(x = instrument, y = n-400, fill = instrument)) +
+  geom_violin(alpha = 0.3)+
+  geom_boxplot( width = .3)
+
+```
+```{r tree tops count}
+c %>% group_by(instrument) %>%
+  summarise(count = mean(n)) %>% mutate(diff = count - 400)
+```
+
+```{r,  fig.cap = "Average number of trees per plot for the two intruments per Tree classification"}
+
+ggplot(c,aes(x = Tree.classification, y = n-400, fill = Tree.classification)) +
+  geom_violin(alpha = 0.3)+
+  geom_boxplot( width = .3) +
+  facet_wrap(~instrument)
+
+c %>% group_by(instrument, Tree.classification) %>%
+  summarise(count = mean(n)) %>% mutate(diff = count - 400)
+
+```
+```{r, echo = F, fig.cap= "average number of 100 central Spruce trees"}
+ggplot(a, aes(x = instrument, y = n, colour = Tree.classification)) +
+  geom_boxplot() 
+```
+
+```{r, fig.cap= "average number of 100 central braodleaf trees"}
+ggplot(bl, aes(x = instrument, y = n, colour = Tree.type)) +
+  geom_boxplot() +
+  facet_wrap(~Tree.type, scales = 'free_y')
+
+```
+
+
+
+```{r}
+#sessionInfo()
+```
+
